@@ -1,1 +1,1 @@
-Sitemap: //x6d.se/sitemap.xml
+Sitemap: https://www.x6d.se/sitemap.xml
