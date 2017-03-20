@@ -1,0 +1,1 @@
+var uri="https://raw.githubusercontent.com/MatteO-Matic/dot-files/master/.config/nvim/init.vim";$.ajax({url:uri,dataType:"jsonp",success:function(a){var b=a.data.content;console.log(b);}});
