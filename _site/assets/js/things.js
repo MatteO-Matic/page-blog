@@ -1,1 +1,0 @@
-function GetVimDot(a){var b="https://raw.githubusercontent.com/MatteO-Matic/dot-files/master/.config/nvim/init.vim";$.ajax({type:"GET",url:b,success:function(c){var d=document.getElementById(a);c=c.split("\n").join("<br/>");d.innerHTML=c;}});}

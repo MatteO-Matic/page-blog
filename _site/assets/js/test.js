@@ -1,1 +1,0 @@
-$.get("//tk.oasgames.com/serverlist",null,function(a){console.log("get serverlist");console.log($(a).find(".server-name"));});
