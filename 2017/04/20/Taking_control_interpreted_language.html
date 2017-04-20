@@ -1,0 +1,148 @@
+<!DOCTYPE html> <html lang="en"> <head> <meta charset="utf-8"> <meta http-equiv="X-UA-Compatible" content="IE=edge"> <meta name="viewport" content="width=device-width, initial-scale=1"> <title>Abusing games implementation of interpreted language</title> <meta name="description" content="Modern applications especially games tend to integrate an interpreted language, usually the most resource-intensive parts of the code is handled inside the g..."> <link rel="stylesheet" href="/assets/css/main.css"> <link rel="canonical" href="https://www.x6d.se/2017/04/20/Taking_control_interpreted_language.html"> <link rel="alternate" type="application/rss+xml" title="x6d" href="/feed.xml"> <script>(function(d,e,j,h,f,c,b){d.GoogleAnalyticsObject=f;d[f]=d[f]||function(){(d[f].q=d[f].q||[]).push(arguments);},d[f].l=1*new Date();c=e.createElement(j),b=e.getElementsByTagName(j)[0];c.async=1;c.src=h;b.parentNode.insertBefore(c,b);})(window,document,"script","https://www.google-analytics.com/analytics.js","ga");ga("create","UA-91309387-2","auto");ga("send","pageview");</script> </head> <body> <header> <nav class="navbar navbar-default navbar-fixed-top"> <div class="container"> <div class="navbar-header"> <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#myNavbar"> <span class="icon-bar"></span> <span class="icon-bar"></span> <span class="icon-bar"></span> </button> <a class="navbar-brand" class="navbar-brand" href="/">x6d.se</a> </div> <div class="collapse navbar-collapse" id="myNavbar"> <ul class="nav navbar-nav"> </ul> <ul class="nav navbar-nav navbar-right"> <li> <a href="/vim">Vim config</a> </li> <li class="dropdown"> <a href="#" class="dropdown-toggle" data-toggle="dropdown" role="button" aria-expanded="false">Projects <span class="caret"></span></a> <ul class="dropdown-menu" role="menu"> <li class="dropdown-header">Gunz 2</li> <li><a href="/pro/gunz2/fanpatch.html">Gunz 2: Fan patch</a></li> <li><a href="/pro/gunz2/ttexture.html">Gunz 2: TTexture</a></li> <li><a href="/pro/gunz2/instagib.html">Gunz 2: Instagib</a></li> <li class="divider"></li> <li class="dropdown-header">PandaTV</li> <li><a href="/pro/pandatvqt.html">PandaTV QT livestreamer</a></li> <li><a href="https://github.com/MatteO-Matic/pandatvAPI">PandaTV Unofficial API</a></li> <li class="divider"></li> <li class="dropdown-header">Tiger Knight</li> <li><a href="/pro/tkstats.html">tkstats.info</a></li> <li class="divider"></li> </ul> </li> <li> <a href="/about">Contact me</a> </li> </ul> </div> </div> </nav> </header> <main class="page-content" aria-label="Content"> <div class="wrapper"> <article class="post" itemscope itemtype="http://schema.org/BlogPosting"> <div class="container"> <div class="row"> <div class="well col-sm-10"> <header class="post-header"> <h1 class="post-title" itemprop="name headline">Abusing games implementation of interpreted language</h1> <p class="post-meta"><time datetime="2017-04-20T00:00:00+02:00" itemprop="datePublished">Apr 20, 2017</time></p> </header> <div class="post-content" itemprop="articleBody"> <p> Modern applications especially games tend to integrate an interpreted language, usually the most resource-intensive parts of the code is handled inside the game engine written with for example c++ that will be compiled into hopefully efficient bytecode. </p> <p> The main advantage would be development speed, as you can load new source code without the need for recompiling the source code. Also commonly used to give a front to the community modding where they can access specific game function.<br> I want to highlight "load new source code" as this isn't limited to the original developers. The "attacker" can easily do the same. Interpreted languages isn't designed to achieve this kind of security. Might be good to keep that in mind. </p> <p> Not trying to say it's bad or wrong way of development, it's nothing wrong with integrating and using an interpreted language, I would rather argue it's probably the best(and nicest) way of game development. </p> <h2>Hooking ReadFile()</h2> <p> In most cases the files are packed and encrypted into a archive, creating a unpacker might be another post as it's a whole topic of its own. Unpacker can be made through breaking on ReadFile and trace to where the decryption takes place by stepping through and checking the memory for expected cleartext. When found try to replicate the steps.<br> </p> <p> In our case it's nice but not necessary to have an unpacker. We can dump all game assets even though they are encrypted through saving the files as they go through ReadFile. </p> <img class="img-responsive" src="/assets/images/reverse/enc_todec.png" alt="ReadFile example encrypted to decrypted data"> <i>When LoadLuaFile() is reading the file it will be unencrypted.</i> <p> <br> You can do a lot with controlling the game assets, a few fun mentions would be changing textures, change configuration files and controlling the integrated language such as lua or python coupled with any exposed function for it. </p> <h3>Injection</h3> <p> I'll go through some code and you'll get the idea. First we need to create a dll for injection. <br> <figure class="highlight"><pre><code class="language-c--" data-lang="c++"><span class="n">BOOL</span> <span class="n">APIENTRY</span> <span class="nf">DllMain</span><span class="p">(</span><span class="n">HMODULE</span> <span class="n">module</span><span class="p">,</span> <span class="n">DWORD</span> <span class="n">reason_for_call</span><span class="p">,</span> <span class="n">LPVOID</span> <span class="n">reserved</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="k">switch</span> <span class="p">(</span><span class="n">reason_for_call</span><span class="p">)</span>
+  <span class="p">{</span>
+  <span class="k">case</span> <span class="n">DLL_PROCESS_ATTACH</span><span class="p">:</span>
+    <span class="n">CreateThread</span><span class="p">(</span><span class="nb">NULL</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span><span class="n">LPTHREAD_START_ROUTINE</span><span class="p">)</span><span class="o">&amp;</span><span class="n">Init</span><span class="p">,</span> <span class="nb">NULL</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="nb">NULL</span><span class="p">);</span>
+    <span class="k">break</span><span class="p">;</span>
+  <span class="k">case</span> <span class="n">DLL_PROCESS_DETACH</span><span class="p">:</span>
+    <span class="n">CreateThread</span><span class="p">(</span><span class="nb">NULL</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="p">(</span><span class="n">LPTHREAD_START_ROUTINE</span><span class="p">)</span><span class="o">&amp;</span><span class="n">Restore</span><span class="p">,</span> <span class="nb">NULL</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="nb">NULL</span><span class="p">);</span>
+    <span class="k">break</span><span class="p">;</span>
+  <span class="p">}</span>
+  <span class="k">return</span> <span class="n">TRUE</span><span class="p">;</span>
+<span class="p">}</span></code></pre></figure> </p> <br> <p> Of course it's very possible to do something similar when creating a external application that use <a href="https://msdn.microsoft.com/en-us/library/windows/desktop/ms681674(v=vs.85).aspx">WriteProcessMemory()</a> and then write your function into a codecave. Another interesting point when creating a external program, if you have a lot of code to write into the target memory then using a codecave might not be sufficient. You can instead search for a smaller codecave where you just allocate some memory for you. But it's another topic, I might create another post about it. </p> <h3>Necessitas</h3> <p> Some useful functions for reading and writing to memory. <figure class="highlight"><pre><code class="language-c--" data-lang="c++"><span class="k">template</span><span class="o">&lt;</span><span class="k">typename</span> <span class="n">T</span><span class="o">&gt;</span>
+<span class="n">DWORD</span> <span class="n">protectMemory</span><span class="p">(</span><span class="n">DWORD</span> <span class="n">address</span><span class="p">,</span> <span class="n">DWORD</span> <span class="n">prot</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="n">DWORD</span> <span class="n">oldProt</span><span class="p">;</span>
+  <span class="n">VirtualProtect</span><span class="p">((</span><span class="n">LPVOID</span><span class="p">)</span><span class="n">address</span><span class="p">,</span> <span class="k">sizeof</span><span class="p">(</span><span class="n">T</span><span class="p">),</span> <span class="n">prot</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">oldProt</span><span class="p">);</span>
+  <span class="k">return</span> <span class="n">oldProt</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="k">template</span><span class="o">&lt;</span><span class="k">typename</span> <span class="n">T</span><span class="o">&gt;</span>
+<span class="n">T</span> <span class="n">readMemory</span><span class="p">(</span><span class="n">DWORD</span> <span class="n">address</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="k">return</span> <span class="o">*</span><span class="p">((</span><span class="n">T</span><span class="o">*</span><span class="p">)</span><span class="n">address</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="k">template</span><span class="o">&lt;</span><span class="k">typename</span> <span class="n">T</span><span class="o">&gt;</span>
+<span class="kt">void</span> <span class="n">writeMemory</span><span class="p">(</span><span class="n">DWORD</span> <span class="n">address</span><span class="p">,</span> <span class="n">T</span> <span class="n">value</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="o">*</span><span class="p">((</span><span class="n">T</span><span class="o">*</span><span class="p">)</span><span class="n">address</span><span class="p">)</span> <span class="o">=</span> <span class="n">value</span><span class="p">;</span>
+<span class="p">}</span></code></pre></figure> </p> <h3>Grab what we need</h3> <p> Fire up a debugger and run the program, if your choice was ollydbg or immunitydbg <br> <b>ctrl + g -> ReadFile -> F2 -> F9</b> <br> Basically goto ReadFile, set a breakpoint(you might want to add a log breakpoint first iteration to see what files goes through) and run the program. You'll be looking for the file buffer and the file path, I would keep reading to get the full idea. My workflow would look something like this: find where I want to patch -> Write a dll and patch -> break in my dll and get offsets of what I need -> Write my DetouredFunction. </p> <h3>Patching</h3> <p> You have multiple choices how you want to patch in the call or a jump, you can for example replace the already existing "call [address]" with your own address to your function. Then somewhere in your own code you'll call the original function as return value to "repair the damage done" and return to normal. Well, you can do whatever you feel like as long as you repair your damage. <br> First get the base address with GetModuleHandle(0). <figure class="highlight"><pre><code class="language-c--" data-lang="c++"><span class="n">HMODULE</span> <span class="n">hSyncClientHandle</span> <span class="o">=</span> <span class="nb">NULL</span><span class="p">;</span>
+<span class="k">while</span> <span class="p">(</span><span class="o">!</span><span class="n">hSyncClientHandle</span><span class="p">)</span> <span class="c1">//Wait until loaded
+</span><span class="p">{</span>
+  <span class="n">hSyncClientHandle</span> <span class="o">=</span> <span class="n">GetModuleHandleA</span><span class="p">(</span><span class="s">"SyncClient.dll"</span><span class="p">);</span>
+  <span class="n">Sleep</span><span class="p">(</span><span class="mi">500</span><span class="p">);</span>
+<span class="p">}</span></code></pre></figure> <p> Patch in a call to your own code, my preference in the end of a function where you have a few bytes available and only need to repair a return. </p> <figure class="highlight"><pre><code class="language-c--" data-lang="c++"><span class="cm">/*!
+  53 - push ebx
+  BB ???? - mov ebx, ????
+  FF D3 - call ebx
+  5B - pop ebx
+  c3 - ret
+*/</span>
+<span class="kt">char</span> <span class="n">strPatch</span><span class="p">[]</span> <span class="o">=</span> <span class="s">"</span><span class="se">\x53\xBB</span><span class="s">????</span><span class="se">\xFF\xD3\x5B\xc3</span><span class="s">"</span><span class="p">;</span>
+<span class="o">*</span><span class="p">((</span><span class="kt">int</span><span class="o">*</span><span class="p">)(</span><span class="n">strPatch</span> <span class="o">+</span> <span class="mi">2</span><span class="p">))</span> <span class="o">=</span> <span class="p">((</span><span class="kt">int</span><span class="p">)</span><span class="o">&amp;</span><span class="n">DetouredFunction</span><span class="p">);</span>
+
+<span class="cm">/*File buffer intercept call*/</span>
+<span class="kt">int</span> <span class="n">intAddressToPatch</span> <span class="o">=</span> <span class="p">(</span><span class="n">UINT</span><span class="p">)</span><span class="n">hSyncClientHandle</span> <span class="o">+</span> <span class="mh">0x1E565</span><span class="p">;</span>
+
+<span class="n">MatMem</span><span class="o">::</span><span class="n">writeMemory</span><span class="p">((</span><span class="kt">void</span><span class="o">*</span><span class="p">)</span><span class="n">intAddressToPatch</span><span class="p">,</span> <span class="n">strPatch</span><span class="p">);</span></code></pre></figure> </p> <p> <figure class="highlight"><pre><code class="language-c--" data-lang="c++"><span class="cm">/*Intercept the filebuffer of decrypted files*/</span>
+<span class="kt">void</span> <span class="nf">DetouredFunction</span><span class="p">()</span>
+<span class="p">{</span>
+  <span class="kr">__asm</span>
+  <span class="p">{</span>
+    <span class="n">pushad</span>
+    <span class="n">pushf</span>
+  <span class="p">}</span>
+  <span class="cm">/*Get the filepath of the loaded file*/</span>
+  <span class="kt">unsigned</span> <span class="kt">int</span> <span class="n">filepath_addr</span><span class="p">;</span>
+  <span class="kr">__asm</span>
+  <span class="p">{</span>
+    <span class="n">push</span> <span class="n">ebx</span>
+    <span class="n">mov</span> <span class="n">ebx</span><span class="p">,</span> <span class="p">[</span><span class="n">ebp</span> <span class="o">+</span> <span class="mh">0xD4</span><span class="p">]</span> <span class="c1">//stackpointer offset to file path
+</span>    <span class="n">mov</span> <span class="n">filepath_addr</span><span class="p">,</span> <span class="n">ebx</span>
+    <span class="n">pop</span> <span class="n">ebx</span>
+  <span class="p">}</span>
+  <span class="kt">unsigned</span> <span class="kt">int</span> <span class="n">filebuffer_addr</span><span class="p">;</span>
+  <span class="kr">__asm</span>
+  <span class="p">{</span>
+    <span class="n">push</span> <span class="n">ebx</span>
+    <span class="n">mov</span> <span class="n">ebx</span><span class="p">,</span> <span class="p">[</span><span class="n">ebp</span> <span class="o">+</span> <span class="mh">0x14</span><span class="p">]</span> <span class="c1">//offset to decrypted buffer
+</span>    <span class="n">mov</span> <span class="n">filebuffer_addr</span><span class="p">,</span> <span class="n">ebx</span>
+    <span class="n">pop</span> <span class="n">ebx</span>
+  <span class="p">}</span>
+
+
+  <span class="cm">/* ... */</span>
+  <span class="cm">/*
+  Now you're a wizard over the game assets!
+  Save the file buffer to a file, modify the buffer, memcpy another file into
+  the buffer!
+
+  if (file.read(buffer.data(), size))
+  {
+    memcpy(((int*)filebuffer_addr), buffer.data(), size);
+  }
+  */</span>
+  <span class="kr">__asm</span>
+  <span class="p">{</span>
+    <span class="n">popf</span>
+    <span class="n">popad</span>
+  <span class="p">}</span>
+  <span class="k">return</span><span class="p">;</span>
+<span class="p">}</span></code></pre></figure> </p> <h3>Replace a Lua file</h3> <p> Find your target file that's going to load your file, I like to search for any place where I can press a button or key in-game to just reload my own file. If compiled you can use <a href="https://sourceforge.net/projects/unluac/">unluac</a> to decompile it, then just recompile it back with <a href="https://www.lua.org/manual/4.0/luac.html">luac</a>. <figure class="highlight"><pre><code class="language-lua" data-lang="lua"><span class="k">function</span> <span class="nf">Input_Key</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+  <span class="k">if</span> <span class="n">args</span><span class="p">.</span><span class="n">key</span> <span class="o">==</span> <span class="n">KEY_NUM0</span> <span class="k">then</span>
+      <span class="kd">local</span> <span class="n">ttmatc</span> <span class="o">=</span> <span class="nb">loadfile</span><span class="p">(</span><span class="s2">"KingLua\\matc.lua"</span><span class="p">)</span>
+      <span class="n">ttmatc</span><span class="p">()</span>
+      <span class="n">TTMatc</span><span class="p">.</span><span class="n">DoStuff</span><span class="p">()</span>
+  <span class="k">end</span>
+      <span class="cm">--[[ ... ]]</span>
+<span class="k">end</span></code></pre></figure> </p> <p> What can you do now? Well.. Anything the original developers could do with LUA. I think the best part we can try things out in runtime, just press our key to reload the intercepted file. A fun example would be my <a href="https://github.com/MatteO-Matic/Gunz-2-fanpatch/blob/master/scripts/TTBerserkMode.lua"> berserk mode</a> for gunz2. Because the game uses p2p communication I'm able to change the rules of how the game is normally played for everyone. </p> <p> I find it useful to dump everything from global for both reference and find functions or variables I need. <figure class="highlight"><pre><code class="language-lua" data-lang="lua"><span class="c1">-- TTMatc.TTSaveTableToFile("_TTGlobalTable","_G", _G)</span>
+<span class="k">function</span> <span class="nc">TTMatc</span><span class="p">.</span><span class="nf">TTSaveTableToFile</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">prefix</span><span class="p">,</span> <span class="n">a</span><span class="p">)</span>
+  <span class="kd">local</span> <span class="n">savetable</span> <span class="o">=</span> <span class="k">function</span> <span class="p">(</span><span class="n">prefix</span><span class="p">,</span> <span class="n">a</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span><span class="n">v</span> <span class="k">in</span> <span class="nb">pairs</span> <span class="p">(</span><span class="n">a</span><span class="p">)</span> <span class="k">do</span>
+      <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"table"</span> <span class="k">then</span>
+        <span class="c1">--Filter out everything we don't want</span>
+        <span class="c1">--if i ~= "attributes" and i~="attributes_update" and i~= "tag"then</span>
+        <span class="n">ttfile</span><span class="p">:</span><span class="n">write</span><span class="p">(</span><span class="n">prefix</span> <span class="o">..</span> <span class="s1">'.'</span> <span class="o">..</span> <span class="n">i</span> <span class="o">..</span> <span class="s1">':Table\n'</span><span class="p">)</span>
+        <span class="c1">--end</span>
+        <span class="k">if</span> <span class="n">v</span> <span class="o">~=</span><span class="n">a</span> <span class="k">then</span>
+          <span class="k">if</span> <span class="n">v</span> <span class="o">~=</span> <span class="kc">nil</span> <span class="k">then</span>
+            <span class="n">savetable</span><span class="p">(</span><span class="n">prefix</span><span class="o">..</span><span class="s2">"."</span><span class="o">..</span><span class="n">i</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+          <span class="k">else</span>
+            <span class="n">ttfile</span><span class="p">:</span><span class="n">write</span><span class="p">(</span><span class="n">prefix</span> <span class="o">..</span> <span class="s1">'.'</span> <span class="o">..</span> <span class="n">i</span> <span class="o">..</span> <span class="s1">':Table\n = nil'</span><span class="p">)</span>
+          <span class="k">end</span>
+        <span class="k">end</span>
+      <span class="k">else</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="o">==</span> <span class="s2">"function"</span> <span class="k">then</span>
+          <span class="n">ttfile</span><span class="p">:</span><span class="n">write</span><span class="p">(</span><span class="n">prefix</span> <span class="o">..</span> <span class="s1">'.'</span> <span class="o">..</span> <span class="nb">tostring</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="o">..</span><span class="s1">'()\n'</span><span class="p">)</span>
+        <span class="k">else</span>
+          <span class="n">ttfile</span><span class="p">:</span><span class="n">write</span><span class="p">(</span><span class="n">prefix</span> <span class="o">..</span> <span class="s1">'.'</span> <span class="o">..</span> <span class="nb">tostring</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="o">..</span> <span class="s1">':'</span><span class="o">..</span><span class="nb">type</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="o">..</span><span class="s2">"="</span><span class="o">..</span><span class="nb">tostring</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="o">..</span><span class="s1">'</span><span class="se">\n</span><span class="s1">'</span><span class="p">)</span>
+        <span class="k">end</span>
+      <span class="k">end</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+  <span class="n">ttfile</span> <span class="o">=</span> <span class="nb">io.open</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="s2">"w"</span><span class="p">)</span>
+  <span class="n">savetable</span><span class="p">(</span><span class="n">prefix</span><span class="p">,</span> <span class="n">a</span><span class="p">)</span>
+  <span class="n">ttfile</span><span class="p">:</span><span class="n">close</span><span class="p">()</span>
+<span class="k">end</span></code></pre></figure> </p> <h2>Bypass checksum</h2> <p> You might stumble upon in online games some kind of prevention measures for altering the gamefiles. Well encryption is one of them that we bypassed, I have also seen some type of checksum. It might not be built as protection for altering game files, it's more used for verifying the patch integrity. One thing you can try is to Wait until the last file is loaded before you override any files. First the calls to ReadFile is to calculate the checksum then loads it a second time for usage. <figure class="highlight"><pre><code class="language-c--" data-lang="c++"><span class="cm">/* void DetouredFunction()
+... */</span>
+
+<span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">strcmp</span><span class="p">(</span><span class="n">filepath</span><span class="p">,</span> <span class="s">"Data</span><span class="se">\\</span><span class="s">Script</span><span class="se">\\</span><span class="s">_compiled</span><span class="se">\\</span><span class="s">AISystem_BehaviorTree.lb"</span><span class="p">))</span>
+<span class="p">{</span>
+  <span class="n">bLastfileLoaded</span> <span class="o">=</span> <span class="nb">true</span><span class="p">;</span>
+<span class="p">}</span>
+<span class="k">if</span> <span class="p">(</span><span class="n">bLastfileLoaded</span><span class="p">)</span>
+<span class="p">{</span>
+  <span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">strcmp</span><span class="p">(</span><span class="n">filepath</span><span class="p">,</span> <span class="s">"Data</span><span class="se">\\</span><span class="s">System</span><span class="se">\\</span><span class="s">server_list.xml"</span><span class="p">))</span>
+  <span class="p">{</span>
+    <span class="n">repDe</span><span class="p">(</span><span class="n">filepath</span><span class="p">,</span> <span class="s">"Data</span><span class="se">\\</span><span class="s">System</span><span class="se">\\</span><span class="s">server_list.xml"</span><span class="p">,</span> <span class="n">filebuffer_add</span><span class="p">);</span>		<span class="c1">//replace data
+</span>  <span class="p">}</span>
+
+  <span class="cm">/*Go through all our xfiles and replace them*/</span>
+  <span class="k">for</span> <span class="p">(</span><span class="n">vector</span><span class="o">&lt;</span><span class="n">string</span><span class="o">&gt;::</span><span class="n">iterator</span> <span class="n">i</span> <span class="o">=</span> <span class="n">xFiles</span><span class="p">.</span><span class="n">begin</span><span class="p">();</span> <span class="n">i</span> <span class="o">!=</span> <span class="n">xFiles</span><span class="p">.</span><span class="n">end</span><span class="p">();</span> <span class="o">++</span><span class="n">i</span><span class="p">)</span>
+  <span class="p">{</span>
+    <span class="c1">//OutputDebugStringA(filepath);
+</span>    <span class="n">repDe</span><span class="p">(</span><span class="n">filepath</span><span class="p">,</span> <span class="n">i</span><span class="o">-&gt;</span><span class="n">c_str</span><span class="p">(),</span> <span class="n">filebuffer_add</span><span class="p">);</span>
+  <span class="p">}</span>
+<span class="p">}</span></code></pre></figure> </p> <p> I would say this approach is pretty general and should work for any game (At least games I tried). </p> <p> And now I'll stop, thanks for reading! </p> </div> </div> </div> </div> </article> </div> </main> <footer class="site-footer"> <div class="container-fluid"> <div class="row-fluid footermenu"> <div class="col-sm-4"> <h3>x6d.se</h3> <ul class="links"> <li><a href="mailto:%6D%61%74%74%65@%78%36%64.%73%65">Contact by email</a></li> <li class="rss-subscribe"><a href="/feed.xml">subscribe via RSS</a></li> <li><a href="/sitemap.xml">Sitemap</a></li> </ul> </div> <div class="col-sm-4"> <h3>social</h3> <ul class="links"> <li> <a href="https://github.com/MatteO-Matic"><span class="icon icon--github"><svg viewBox="0 0 16 16" width="16px" height="16px"><path fill="#828282" d="M7.999,0.431c-4.285,0-7.76,3.474-7.76,7.761 c0,3.428,2.223,6.337,5.307,7.363c0.388,0.071,0.53-0.168,0.53-0.374c0-0.184-0.007-0.672-0.01-1.32 c-2.159,0.469-2.614-1.04-2.614-1.04c-0.353-0.896-0.862-1.135-0.862-1.135c-0.705-0.481,0.053-0.472,0.053-0.472 c0.779,0.055,1.189,0.8,1.189,0.8c0.692,1.186,1.816,0.843,2.258,0.645c0.071-0.502,0.271-0.843,0.493-1.037 C4.86,11.425,3.049,10.76,3.049,7.786c0-0.847,0.302-1.54,0.799-2.082C3.768,5.507,3.501,4.718,3.924,3.65 c0,0,0.652-0.209,2.134,0.796C6.677,4.273,7.34,4.187,8,4.184c0.659,0.003,1.323,0.089,1.943,0.261 c1.482-1.004,2.132-0.796,2.132-0.796c0.423,1.068,0.157,1.857,0.077,2.054c0.497,0.542,0.798,1.235,0.798,2.082 c0,2.981-1.814,3.637-3.543,3.829c0.279,0.24,0.527,0.713,0.527,1.437c0,1.037-0.01,1.874-0.01,2.129 c0,0.208,0.14,0.449,0.534,0.373c3.081-1.028,5.302-3.935,5.302-7.362C15.76,3.906,12.285,0.431,7.999,0.431z"/></svg> </span><span class="username">MatteO-Matic</span></a> </li> <li> <a href="https://twitter.com/matteomatic"><span class="icon icon--twitter"><svg viewBox="0 0 16 16" width="16px" height="16px"><path fill="#828282" d="M15.969,3.058c-0.586,0.26-1.217,0.436-1.878,0.515c0.675-0.405,1.194-1.045,1.438-1.809c-0.632,0.375-1.332,0.647-2.076,0.793c-0.596-0.636-1.446-1.033-2.387-1.033c-1.806,0-3.27,1.464-3.27,3.27 c0,0.256,0.029,0.506,0.085,0.745C5.163,5.404,2.753,4.102,1.14,2.124C0.859,2.607,0.698,3.168,0.698,3.767 c0,1.134,0.577,2.135,1.455,2.722C1.616,6.472,1.112,6.325,0.671,6.08c0,0.014,0,0.027,0,0.041c0,1.584,1.127,2.906,2.623,3.206 C3.02,9.402,2.731,9.442,2.433,9.442c-0.211,0-0.416-0.021-0.615-0.059c0.416,1.299,1.624,2.245,3.055,2.271 c-1.119,0.877-2.529,1.4-4.061,1.4c-0.264,0-0.524-0.015-0.78-0.046c1.447,0.928,3.166,1.469,5.013,1.469 c6.015,0,9.304-4.983,9.304-9.304c0-0.142-0.003-0.283-0.009-0.423C14.976,4.29,15.531,3.714,15.969,3.058z"/></svg> </span><span class="username">matteomatic</span></a> </li> </ul> </div> <div class="col-sm-4"><br> </div> </div> <div class="row-fluid"> <div class="col-sm-12"> <hr> </div> </div> <div class="row"> <div class="col-sm-12 copyright"> <ul class="menu"> <li>&copy; Copyright 2017 MatteOMatic x6d.se</li> </ul> </div> </div> </div> </footer> <script src="/assets/js/jquery.min.js"></script> <script src="/assets/js/bootstrap.min.js"></script> </body> </html>
